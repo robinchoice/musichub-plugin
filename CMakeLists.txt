@@ -1,15 +1,16 @@
 cmake_minimum_required(VERSION 3.22)
+
+# project() caches its own defaults for these, so they only take effect when
+# set before it. Other platforms ignore them.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
+set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "macOS architectures")
+
 project(MusicHubPlugin VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-
-if(APPLE)
-  set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "")
-  set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "")
-endif()
 
 include(FetchContent)
 FetchContent_Declare(JUCE
