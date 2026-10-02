@@ -71,6 +71,10 @@ std::shared_ptr<LoadedAudio> decodeFile (juce::AudioFormatManager& formats, cons
 HubSession::HubSession (juce::String name)
     : client (std::make_shared<HubClient> (baseUrlFromEnvironment())), clientName (std::move (name))
 {
+    // Worker threads take weak references to post their results back. The
+    // first one creates the shared state, so do that here before they can race.
+    masterReference.getSharedPointer (this);
+
     formats.registerBasicFormats();
     for (auto& w : work)
         w.cancelled = std::make_shared<std::atomic<bool>> (false);
