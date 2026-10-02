@@ -66,6 +66,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist/MusicHub | Out-Null
           Copy-Item -Recurse -Path build/MusicHub_artefacts/Release/VST3, build/MusicHub_artefacts/Release/AAX, build/MusicHub_artefacts/Release/Standalone -Destination dist/MusicHub
+          # Import libraries and export files from linking aren't part of the plugin
+          Get-ChildItem dist/MusicHub -Recurse -Include *.lib, *.exp | Remove-Item
           Compress-Archive -Path dist/MusicHub -DestinationPath "${{ matrix.archive }}"
 
       - name: Package (Linux)
