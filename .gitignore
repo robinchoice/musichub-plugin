@@ -1,0 +1,6 @@
+build/
+.deps/
+.sysroot/
+.cache/
+*.swp
+.DS_Store
