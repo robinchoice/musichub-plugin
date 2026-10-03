@@ -9,7 +9,7 @@
 
 namespace
 {
-constexpr auto defaultBaseUrl = "https://hub.diespaetzles.lol";
+constexpr auto defaultBaseUrl = "https://hub.pleasance.org";
 constexpr auto credentialsFileName = "credentials.json";
 
 juce::String baseUrlFromEnvironment()
