@@ -4,7 +4,9 @@
 #include <cmath>
 
 #if JUCE_MAC || JUCE_LINUX
+ #include <fcntl.h>
  #include <sys/stat.h>
+ #include <unistd.h>
 #endif
 
 namespace
@@ -153,11 +155,17 @@ void HubSession::writeCredentials() const
     root->setProperty ("token", client->getToken());
     root->setProperty ("user", juce::var (stored));
 
-    file.replaceWithText (juce::JSON::toString (juce::var (root)));
+    const auto credentials = juce::JSON::toString (juce::var (root));
+    juce::TemporaryFile temporary (file);
    #if JUCE_MAC || JUCE_LINUX
-    // The token is a login, so only this user may read it
-    ::chmod (file.getFullPathName().toRawUTF8(), S_IRUSR | S_IWUSR);
+    const int descriptor = ::open (temporary.getFile().getFullPathName().toRawUTF8(),
+                                   O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+    if (descriptor < 0)
+        return;
+    ::close (descriptor);
    #endif
+    if (temporary.getFile().appendText (credentials))
+        temporary.overwriteTargetFileWithTemporary();
 }
 
 void HubSession::beginLogin()
@@ -168,15 +176,17 @@ void HubSession::beginLogin()
     login = Login::waitingForApproval;
     lastError.clear();
     deviceLogin = {};
+    pollInFlight = false;
+    const int generation = ++loginGeneration;
     sendChangeMessage();
 
-    run ([this, client = client, name = clientName]
+    run ([this, client = client, name = clientName, generation]
     {
         DeviceLogin result;
         const auto outcome = client->startDeviceLogin (name, result);
-        later ([this, outcome, result]
+        later ([this, outcome, result, generation]
         {
-            if (login != Login::waitingForApproval)
+            if (generation != loginGeneration || login != Login::waitingForApproval)
                 return;
 
             if (outcome.failed())
@@ -200,13 +210,15 @@ void HubSession::timerCallback()
         return;
 
     pollInFlight = true;
-    run ([this, client = client, deviceCode = deviceLogin.deviceCode]
+    run ([this, client = client, deviceCode = deviceLogin.deviceCode, generation = loginGeneration]
     {
         juce::String token, error;
         HubUser newUser;
         const auto outcome = client->pollDeviceLogin (deviceCode, token, newUser, error);
-        later ([this, outcome, token, newUser, error]
+        later ([this, outcome, token, newUser, error, generation]
         {
+            if (generation != loginGeneration)
+                return;
             pollInFlight = false;
             if (login != Login::waitingForApproval)
                 return;
@@ -240,6 +252,7 @@ void HubSession::cancelLogin()
         return;
 
     stopTimer();
+    ++loginGeneration;
     login = Login::loggedOut;
     deviceLogin = {};
     sendChangeMessage();
@@ -268,6 +281,7 @@ void HubSession::logout()
 void HubSession::forgetSession (const juce::String& message)
 {
     stopTimer();
+    ++loginGeneration;
     client->setToken ({});
     dataDirectory().getChildFile (credentialsFileName).deleteFile();
 
@@ -421,8 +435,15 @@ void HubSession::applyPendingSlots()
 
 juce::File HubSession::cacheFileFor (const HubVersion& version) const
 {
-    return dataDirectory().getChildFile ("cache").getChildFile (version.id)
-        .getChildFile (juce::File::createLegalFileName (version.originalFileName));
+    const auto name = juce::File::createLegalFileName (version.originalFileName);
+    if (version.id.isEmpty() || version.id.length() > 64
+        || ! version.id.containsOnly ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
+        || name.isEmpty() || name == "." || name == "..")
+        return {};
+
+    const auto root = dataDirectory().getChildFile ("cache");
+    const auto file = root.getChildFile (version.id).getChildFile (name);
+    return file.isAChildOf (root) ? file : juce::File();
 }
 
 void HubSession::dropSlotAudio (int slotIndex)
@@ -441,12 +462,13 @@ void HubSession::assignVersion (int slotIndex, const juce::String& versionId)
 
     auto& slot = slots[(size_t) (slotIndex - 1)];
     auto& w = work[(size_t) (slotIndex - 1)];
-    if (slot.versionId == versionId && slot.status != SlotStatus::failed)
+    if (slot.versionId == versionId && slot.status != SlotStatus::failed && slot.status != SlotStatus::pending)
         return;
 
     const auto found = std::find_if (versions.begin(), versions.end(), [&] (const auto& v) { return v.id == versionId; });
     if (found == versions.end())
     {
+        clearSlot (slotIndex);
         // The version list isn't there yet (restored session); pick it up when it arrives
         w.pendingVersionId = versionId;
         slot = {};
@@ -470,6 +492,14 @@ void HubSession::assignVersion (int slotIndex, const juce::String& versionId)
     slot.status = SlotStatus::downloading;
     dropSlotAudio (slotIndex);
     sendChangeMessage();
+
+    if (w.file == juce::File())
+    {
+        slot.status = SlotStatus::failed;
+        slot.error = juce::String::fromUTF8 ("Ung\xC3\xBCltiger Cache-Pfad");
+        sendChangeMessage();
+        return;
+    }
 
     if (w.file.existsAsFile())
     {

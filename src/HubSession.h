@@ -110,6 +110,7 @@ private:
     DeviceLogin deviceLogin;
     juce::String lastError;
     bool pollInFlight = false;
+    int loginGeneration = 0;
 
     std::vector<HubProject> projects;
     std::vector<HubTrack> tracks;

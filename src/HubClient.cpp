@@ -116,6 +116,15 @@ juce::Result HubClient::startDeviceLogin (const juce::String& clientName, Device
     out.deviceCode = str (response.json, "deviceCode");
     out.userCode = str (response.json, "userCode");
     out.verificationUrl = str (response.json, "verificationUrl");
+    const juce::URL verification (out.verificationUrl);
+    const auto domain = verification.getDomain();
+    const bool loopback = domain == "localhost" || domain == "127.0.0.1";
+    const auto authority = out.verificationUrl.fromFirstOccurrenceOf ("://", false, false).initialSectionNotContaining ("/?#");
+    const auto hubAuthority = baseUrl.fromFirstOccurrenceOf ("://", false, false).initialSectionNotContaining ("/?#");
+    if (! authority.equalsIgnoreCase (hubAuthority)
+        || ! (verification.getScheme() == "https" || (loopback && verification.getScheme() == "http")))
+        return juce::Result::fail (juce::String::fromUTF8 ("Ung\xC3\xBCltige Best\xC3\xA4tigungs-URL"));
+
     out.pollIntervalSeconds = juce::jmax (1, static_cast<int> (response.json.getProperty ("pollIntervalSeconds", 5)));
     return juce::Result::ok();
 }
@@ -176,7 +185,7 @@ juce::Result HubClient::fetchProjects (std::vector<HubProject>& out)
 
 juce::Result HubClient::fetchTracks (const juce::String& projectId, std::vector<HubTrack>& out)
 {
-    const auto response = request ("GET", "/tracks/project/" + projectId);
+    const auto response = request ("GET", "/tracks/project/" + juce::URL::addEscapeChars (projectId, true));
     if (const auto result = check (response); result.failed())
         return result;
 
@@ -190,7 +199,7 @@ juce::Result HubClient::fetchTracks (const juce::String& projectId, std::vector<
 
 juce::Result HubClient::fetchVersions (const juce::String& trackId, std::vector<HubVersion>& out)
 {
-    const auto response = request ("GET", "/versions/track/" + trackId);
+    const auto response = request ("GET", "/versions/track/" + juce::URL::addEscapeChars (trackId, true));
     if (const auto result = check (response); result.failed())
         return result;
 
@@ -215,7 +224,7 @@ juce::Result HubClient::fetchVersions (const juce::String& trackId, std::vector<
 
 juce::Result HubClient::fetchDownloadUrl (const juce::String& versionId, juce::String& urlOut)
 {
-    const auto response = request ("GET", "/versions/" + versionId + "/download-url");
+    const auto response = request ("GET", "/versions/" + juce::URL::addEscapeChars (versionId, true) + "/download-url");
     if (const auto result = check (response); result.failed())
         return result;
 
@@ -238,10 +247,11 @@ juce::Result HubClient::downloadFile (const juce::String& urlString, const juce:
         return juce::Result::fail ("Download fehlgeschlagen (HTTP " + juce::String (status) + ")");
 
     destination.getParentDirectory().createDirectory();
-    const auto partFile = destination.getSiblingFile (destination.getFileName() + ".part");
-    partFile.deleteFile();
+    const juce::TemporaryFile temporary (destination);
+    const auto& partFile = temporary.getFile();
 
     bool aborted = false;
+    bool incomplete = false;
     {
         juce::FileOutputStream out (partFile);
         if (! out.openedOk())
@@ -262,9 +272,16 @@ juce::Result HubClient::downloadFile (const juce::String& urlString, const juce:
 
             const auto n = stream->read (chunk, chunkSize);
             if (n <= 0)
+            {
+                incomplete = n < 0 || ! stream->isExhausted();
                 break;
+            }
 
-            out.write (chunk, static_cast<size_t> (n));
+            if (! out.write (chunk, static_cast<size_t> (n)))
+            {
+                incomplete = true;
+                break;
+            }
             done += n;
 
             if (total > 0 && onProgress != nullptr)
@@ -272,15 +289,18 @@ juce::Result HubClient::downloadFile (const juce::String& urlString, const juce:
         }
 
         out.flush();
+        incomplete = incomplete || (total >= 0 && done != total) || out.getStatus().failed();
+        if (auto* web = dynamic_cast<juce::WebInputStream*> (stream.get()))
+            incomplete = incomplete || web->isError();
     }
 
     if (aborted)
-    {
-        partFile.deleteFile();
         return juce::Result::fail ("Abgebrochen");
-    }
 
-    if (! partFile.moveFileTo (destination))
+    if (incomplete)
+        return juce::Result::fail (juce::String::fromUTF8 ("Download unvollst\xC3\xA4ndig"));
+
+    if (! temporary.overwriteTargetFileWithTemporary())
         return juce::Result::fail ("Cache-Datei kann nicht umbenannt werden");
 
     return juce::Result::ok();

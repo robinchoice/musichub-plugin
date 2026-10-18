@@ -2,6 +2,7 @@
 
 void Engine::prepare (double newSampleRate, int maxBlockSize)
 {
+    maxBlockSize = juce::jmax (1, maxBlockSize);
     sampleRate.store (newSampleRate);
     fadeLength = juce::jmax (1, juce::roundToInt (newSampleRate * 0.01));
 
@@ -52,6 +53,19 @@ void Engine::process (juce::AudioBuffer<float>& buffer, std::optional<int64_t> h
     if (numSamples == 0 || numChannels == 0)
         return;
 
+    const int capacity = liveCopy.getNumSamples();
+    if (numSamples > capacity)
+    {
+        for (int start = 0; start < numSamples; start += capacity)
+        {
+            const int count = juce::jmin (capacity, numSamples - start);
+            juce::AudioBuffer<float> block (buffer.getArrayOfWritePointers(), buffer.getNumChannels(), start, count);
+            process (block, hostPosition.has_value() ? std::optional<int64_t> (*hostPosition + start) : std::nullopt,
+                     playing, nonRealtime);
+        }
+        return;
+    }
+
     if (playing && ! nonRealtime)
         meter.process (buffer.getArrayOfReadPointers(), numChannels, numSamples);
 
@@ -70,11 +84,11 @@ void Engine::process (juce::AudioBuffer<float>& buffer, std::optional<int64_t> h
     for (int ch = 0; ch < numChannels; ++ch)
         liveCopy.copyFrom (ch, 0, buffer, ch, 0, numSamples);
 
-    render (current, liveCopy, toBuffer, hostPosition);
+    render (current, liveCopy, toBuffer, hostPosition, numSamples);
 
     if (fadeLeft > 0)
     {
-        render (fadeFrom, liveCopy, fromBuffer, hostPosition);
+        render (fadeFrom, liveCopy, fromBuffer, hostPosition, numSamples);
 
         const int fadeSamples = juce::jmin (fadeLeft, numSamples);
         for (int ch = 0; ch < numChannels; ++ch)
@@ -104,10 +118,8 @@ void Engine::process (juce::AudioBuffer<float>& buffer, std::optional<int64_t> h
             buffer.clear (ch, 0, numSamples);
 }
 
-void Engine::render (int source, const juce::AudioBuffer<float>& live, juce::AudioBuffer<float>& out, std::optional<int64_t> hostPosition)
+void Engine::render (int source, const juce::AudioBuffer<float>& live, juce::AudioBuffer<float>& out, std::optional<int64_t> hostPosition, int numSamples)
 {
-    const int numSamples = live.getNumSamples();
-
     if (source == 0)
     {
         for (int ch = 0; ch < 2; ++ch)
@@ -128,13 +140,12 @@ void Engine::render (int source, const juce::AudioBuffer<float>& live, juce::Aud
         return;
     }
 
-    renderVersion (source, *loaded, *hostPosition, out);
+    renderVersion (source, *loaded, *hostPosition, out, numSamples);
 }
 
-void Engine::renderVersion (int slotIndex, const LoadedAudio& loaded, int64_t hostPosition, juce::AudioBuffer<float>& out)
+void Engine::renderVersion (int slotIndex, const LoadedAudio& loaded, int64_t hostPosition, juce::AudioBuffer<float>& out, int numSamples)
 {
     auto& s = slots[(size_t) slotIndex];
-    const int numSamples = out.getNumSamples();
     const auto offsetSamples = (int64_t) std::llround (s.offsetSeconds.load() * sampleRate.load());
     const int64_t start = hostPosition - offsetSamples;
     const int64_t fileLength = loaded.buffer.getNumSamples();

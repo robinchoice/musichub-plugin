@@ -125,7 +125,11 @@ void MusicHubAudioProcessor::timerCallback()
         float matchDb = 0.0f;
         if (match && std::isfinite (live))
             if (const auto audio = engine.getSlotAudio (slot); audio != nullptr && std::isfinite (audio->integratedLufs))
-                matchDb = (float) juce::jlimit (-40.0, 20.0, live - audio->integratedLufs);
+            {
+                const double channelGain = audio->buffer.getNumChannels() == 1 && getTotalNumOutputChannels() == 2
+                                             ? 10.0 * std::log10 (2.0) : 0.0;
+                matchDb = (float) juce::jlimit (-40.0, 20.0, live - audio->integratedLufs - channelGain);
+            }
         engine.slot (slot).matchDb.store (matchDb);
     }
 }
