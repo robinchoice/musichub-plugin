@@ -471,7 +471,6 @@ void HubSession::assignVersion (int slotIndex, const juce::String& versionId)
         clearSlot (slotIndex);
         // The version list isn't there yet (restored session); pick it up when it arrives
         w.pendingVersionId = versionId;
-        slot = {};
         slot.versionId = versionId;
         slot.status = SlotStatus::pending;
         sendChangeMessage();
@@ -491,7 +490,6 @@ void HubSession::assignVersion (int slotIndex, const juce::String& versionId)
     slot.name = version.displayName();
     slot.status = SlotStatus::downloading;
     dropSlotAudio (slotIndex);
-    sendChangeMessage();
 
     if (w.file == juce::File())
     {
@@ -500,6 +498,7 @@ void HubSession::assignVersion (int slotIndex, const juce::String& versionId)
         sendChangeMessage();
         return;
     }
+    sendChangeMessage();
 
     if (w.file.existsAsFile())
     {

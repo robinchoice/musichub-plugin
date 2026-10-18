@@ -84,11 +84,11 @@ void Engine::process (juce::AudioBuffer<float>& buffer, std::optional<int64_t> h
     for (int ch = 0; ch < numChannels; ++ch)
         liveCopy.copyFrom (ch, 0, buffer, ch, 0, numSamples);
 
-    render (current, liveCopy, toBuffer, hostPosition, numSamples);
+    render (current, toBuffer, hostPosition, numSamples);
 
     if (fadeLeft > 0)
     {
-        render (fadeFrom, liveCopy, fromBuffer, hostPosition, numSamples);
+        render (fadeFrom, fromBuffer, hostPosition, numSamples);
 
         const int fadeSamples = juce::jmin (fadeLeft, numSamples);
         for (int ch = 0; ch < numChannels; ++ch)
@@ -118,12 +118,12 @@ void Engine::process (juce::AudioBuffer<float>& buffer, std::optional<int64_t> h
             buffer.clear (ch, 0, numSamples);
 }
 
-void Engine::render (int source, const juce::AudioBuffer<float>& live, juce::AudioBuffer<float>& out, std::optional<int64_t> hostPosition, int numSamples)
+void Engine::render (int source, juce::AudioBuffer<float>& out, std::optional<int64_t> hostPosition, int numSamples)
 {
     if (source == 0)
     {
         for (int ch = 0; ch < 2; ++ch)
-            out.copyFrom (ch, 0, live, juce::jmin (ch, live.getNumChannels() - 1), 0, numSamples);
+            out.copyFrom (ch, 0, liveCopy, juce::jmin (ch, liveCopy.getNumChannels() - 1), 0, numSamples);
         return;
     }
 
