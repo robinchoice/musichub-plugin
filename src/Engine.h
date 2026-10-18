@@ -15,7 +15,6 @@
 struct LoadedAudio
 {
     juce::AudioBuffer<float> buffer;
-    double sampleRate = 0;
     double integratedLufs = -std::numeric_limits<double>::infinity();
 };
 
@@ -41,7 +40,6 @@ public:
     void process (juce::AudioBuffer<float>& buffer, std::optional<int64_t> hostPosition, bool playing, bool nonRealtime);
 
     void setActiveSlot (int slot) { active.store (juce::jlimit (0, numSlots - 1, slot)); }
-    int getActiveSlot() const { return active.load(); }
     // The slot that is actually audible after the pass-through rules
     int getPlayingSlot() const { return playingSlot.load(); }
 
@@ -54,7 +52,6 @@ public:
     void clearReleasePool();
 
     LoudnessMeter& liveMeter() { return meter; }
-    double getSampleRate() const { return sampleRate.load(); }
     int getFadeLength() const { return fadeLength; }
 
 private:

@@ -13,6 +13,7 @@ namespace
 {
 constexpr auto defaultBaseUrl = "https://hub.pleasance.org";
 constexpr auto credentialsFileName = "credentials.json";
+constexpr auto sessionExpiredMessage = "Die Anmeldung ist abgelaufen. Bitte neu verbinden.";
 
 juce::String baseUrlFromEnvironment()
 {
@@ -49,7 +50,6 @@ std::shared_ptr<LoadedAudio> decodeFile (juce::AudioFormatManager& formats, cons
     }
 
     auto loaded = std::make_shared<LoadedAudio>();
-    loaded->sampleRate = targetRate;
     loaded->integratedLufs = knownLufs.value_or (LoudnessMeter::measure (source, reader->sampleRate));
 
     if (std::abs (reader->sampleRate - targetRate) < 0.5)
@@ -304,7 +304,7 @@ bool HubSession::failed (const juce::Result& result)
         return false;
 
     if (result.getErrorMessage() == HubClient::unauthorized)
-        forgetSession ("Die Anmeldung ist abgelaufen. Bitte neu verbinden.");
+        forgetSession (sessionExpiredMessage);
     else
     {
         lastError = result.getErrorMessage();
@@ -542,7 +542,7 @@ void HubSession::assignVersion (int slotIndex, const juce::String& versionId)
             }
             if (outcome.getErrorMessage() == HubClient::unauthorized)
             {
-                forgetSession ("Die Anmeldung ist abgelaufen. Bitte neu verbinden.");
+                forgetSession (sessionExpiredMessage);
                 return;
             }
             auto& slot = slots[(size_t) (slotIndex - 1)];

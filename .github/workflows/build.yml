@@ -46,11 +46,14 @@ jobs:
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build
-        run: cmake --build build --config Release --parallel 4
+      - name: Build tests
+        run: cmake --build build --config Release --target MusicHubTests --parallel 4
 
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
 
       # Unsigned builds: macOS needs the quarantine flag removed, and AAX only
       # loads in Pro Tools Developer until the bundles are signed with PACE.

@@ -147,20 +147,6 @@ HubClient::Poll HubClient::pollDeviceLogin (const juce::String& deviceCode, juce
     return response.status == 400 ? Poll::expired : Poll::failed;
 }
 
-juce::Result HubClient::fetchMe (HubUser& out)
-{
-    const auto response = request ("GET", "/auth/me");
-    if (const auto result = check (response); result.failed())
-        return result;
-
-    const auto user = response.json["user"];
-    if (! user.isObject())
-        return juce::Result::fail (unauthorized);
-
-    out = parseUser (user);
-    return juce::Result::ok();
-}
-
 juce::Result HubClient::logout (const juce::String& token)
 {
     return check (request ("POST", "/auth/logout", {}, token));
@@ -211,10 +197,8 @@ juce::Result HubClient::fetchVersions (const juce::String& trackId, std::vector<
             version.id = str (item, "id");
             version.label = str (item, "label");
             version.branchLabel = str (item, "branchLabel");
-            version.status = str (item, "status");
             version.originalFileName = str (item, "originalFileName");
             version.versionNumber = static_cast<int> (item.getProperty ("versionNumber", 0));
-            version.duration = number (item, "duration").value_or (0.0);
             version.integratedLufs = number (item, "integratedLufs");
             out.push_back (std::move (version));
         }

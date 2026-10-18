@@ -46,10 +46,9 @@ static void testLoudness (double sampleRate)
     check (std::isinf (LoudnessMeter::measure (silence, sampleRate)), "silence is gated out");
 }
 
-static std::shared_ptr<LoadedAudio> makeRamp (int length, double sampleRate)
+static std::shared_ptr<LoadedAudio> makeRamp (int length)
 {
     auto audio = std::make_shared<LoadedAudio>();
-    audio->sampleRate = sampleRate;
     audio->buffer.setSize (2, length);
     for (int i = 0; i < length; ++i)
     {
@@ -82,7 +81,7 @@ static void testEngine()
     engine.prepare (sampleRate, block);
 
     const int fileLength = (int) sampleRate * 4;
-    engine.setSlotAudio (1, makeRamp (fileLength, sampleRate));
+    engine.setSlotAudio (1, makeRamp (fileLength));
     engine.slot (1).offsetSeconds.store (1.0);   // file starts at host second 1
 
     juce::AudioBuffer<float> buffer (2, block);
@@ -182,7 +181,7 @@ static void testEngine()
 
     // Replacing audio keeps the old buffer alive until released
     auto first = engine.getSlotAudio (1);
-    engine.setSlotAudio (1, makeRamp (100, sampleRate));
+    engine.setSlotAudio (1, makeRamp (100));
     check (first.use_count() == 2, "replaced audio sits in the release pool");
     first.reset();
     engine.clearReleasePool();

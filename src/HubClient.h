@@ -24,9 +24,8 @@ struct HubTrack
 
 struct HubVersion
 {
-    juce::String id, label, branchLabel, status, originalFileName;
+    juce::String id, label, branchLabel, originalFileName;
     int versionNumber = 0;
-    double duration = 0;
     std::optional<double> integratedLufs;
 
     juce::String displayName() const;
@@ -54,7 +53,6 @@ public:
     Poll pollDeviceLogin (const juce::String& deviceCode, juce::String& tokenOut, HubUser& userOut, juce::String& errorOut);
 
     // These fail with `unauthorized` once the token is no longer valid
-    juce::Result fetchMe (HubUser& out);
     juce::Result logout (const juce::String& token);
     juce::Result fetchProjects (std::vector<HubProject>& out);
     juce::Result fetchTracks (const juce::String& projectId, std::vector<HubTrack>& out);
