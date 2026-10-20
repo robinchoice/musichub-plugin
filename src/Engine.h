@@ -55,7 +55,7 @@ public:
     int getFadeLength() const { return fadeLength; }
 
 private:
-    void render (int source, juce::AudioBuffer<float>& out, std::optional<int64_t> hostPosition, int numSamples);
+    void render (int source, const juce::AudioBuffer<float>& live, juce::AudioBuffer<float>& out, std::optional<int64_t> hostPosition, int numSamples);
     void renderVersion (int slotIndex, const LoadedAudio& audio, int64_t hostPosition, juce::AudioBuffer<float>& out, int numSamples);
 
     std::atomic<double> sampleRate { 48000.0 };
@@ -70,7 +70,7 @@ private:
     std::atomic<int> playingSlot { 0 };
     int current = 0, fadeFrom = 0, fadeLeft = 0;
 
-    juce::AudioBuffer<float> liveCopy, fromBuffer, toBuffer;
+    juce::AudioBuffer<float> fromBuffer, toBuffer;
     std::array<juce::LinearSmoothedValue<float>, numSlots> gains;
     LoudnessMeter meter;
 };

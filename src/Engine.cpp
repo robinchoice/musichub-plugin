@@ -6,7 +6,6 @@ void Engine::prepare (double newSampleRate, int maxBlockSize)
     sampleRate.store (newSampleRate);
     fadeLength = juce::jmax (1, juce::roundToInt (newSampleRate * 0.01));
 
-    liveCopy.setSize (2, maxBlockSize);
     fromBuffer.setSize (2, maxBlockSize);
     toBuffer.setSize (2, maxBlockSize);
 
@@ -53,7 +52,7 @@ void Engine::process (juce::AudioBuffer<float>& buffer, std::optional<int64_t> h
     if (numSamples == 0 || numChannels == 0)
         return;
 
-    const int capacity = liveCopy.getNumSamples();
+    const int capacity = toBuffer.getNumSamples();
     if (numSamples > capacity)
     {
         for (int start = 0; start < numSamples; start += capacity)
@@ -81,14 +80,11 @@ void Engine::process (juce::AudioBuffer<float>& buffer, std::optional<int64_t> h
     if (current == 0 && fadeLeft == 0)
         return;
 
-    for (int ch = 0; ch < numChannels; ++ch)
-        liveCopy.copyFrom (ch, 0, buffer, ch, 0, numSamples);
-
-    render (current, toBuffer, hostPosition, numSamples);
+    render (current, buffer, toBuffer, hostPosition, numSamples);
 
     if (fadeLeft > 0)
     {
-        render (fadeFrom, fromBuffer, hostPosition, numSamples);
+        render (fadeFrom, buffer, fromBuffer, hostPosition, numSamples);
 
         const int fadeSamples = juce::jmin (fadeLeft, numSamples);
         for (int ch = 0; ch < numChannels; ++ch)
@@ -118,12 +114,12 @@ void Engine::process (juce::AudioBuffer<float>& buffer, std::optional<int64_t> h
             buffer.clear (ch, 0, numSamples);
 }
 
-void Engine::render (int source, juce::AudioBuffer<float>& out, std::optional<int64_t> hostPosition, int numSamples)
+void Engine::render (int source, const juce::AudioBuffer<float>& live, juce::AudioBuffer<float>& out, std::optional<int64_t> hostPosition, int numSamples)
 {
     if (source == 0)
     {
         for (int ch = 0; ch < 2; ++ch)
-            out.copyFrom (ch, 0, liveCopy, juce::jmin (ch, liveCopy.getNumChannels() - 1), 0, numSamples);
+            out.copyFrom (ch, 0, live, juce::jmin (ch, live.getNumChannels() - 1), 0, numSamples);
         return;
     }
 

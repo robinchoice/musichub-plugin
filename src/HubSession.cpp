@@ -473,32 +473,25 @@ void HubSession::assignVersion (int slotIndex, const juce::String& versionId)
         w.pendingVersionId = versionId;
         slot.versionId = versionId;
         slot.status = SlotStatus::pending;
-        sendChangeMessage();
         return;
     }
     const HubVersion version = *found;
 
-    w.cancelled->store (true);
-    w.cancelled = std::make_shared<std::atomic<bool>> (false);
-    const int generation = ++w.generation;
+    clearSlot (slotIndex);
+    const int generation = w.generation;
     w.file = cacheFileFor (version);
     w.knownLufs = version.integratedLufs;
-    w.pendingVersionId.clear();
 
-    slot = {};
     slot.versionId = version.id;
     slot.name = version.displayName();
     slot.status = SlotStatus::downloading;
-    dropSlotAudio (slotIndex);
 
     if (w.file == juce::File())
     {
         slot.status = SlotStatus::failed;
         slot.error = juce::String::fromUTF8 ("Ung\xC3\xBCltiger Cache-Pfad");
-        sendChangeMessage();
         return;
     }
-    sendChangeMessage();
 
     if (w.file.existsAsFile())
     {
