@@ -465,10 +465,10 @@ void HubSession::assignVersion (int slotIndex, const juce::String& versionId)
     if (slot.versionId == versionId && slot.status != SlotStatus::failed && slot.status != SlotStatus::pending)
         return;
 
+    clearSlot (slotIndex);
     const auto found = std::find_if (versions.begin(), versions.end(), [&] (const auto& v) { return v.id == versionId; });
     if (found == versions.end())
     {
-        clearSlot (slotIndex);
         // The version list isn't there yet (restored session); pick it up when it arrives
         w.pendingVersionId = versionId;
         slot.versionId = versionId;
@@ -477,8 +477,6 @@ void HubSession::assignVersion (int slotIndex, const juce::String& versionId)
     }
     const HubVersion version = *found;
 
-    clearSlot (slotIndex);
-    const int generation = w.generation;
     w.file = cacheFileFor (version);
     w.knownLufs = version.integratedLufs;
 
@@ -499,7 +497,7 @@ void HubSession::assignVersion (int slotIndex, const juce::String& versionId)
         return;
     }
 
-    run ([this, client = client, version, file = w.file, generation, slotIndex, cancelled = w.cancelled]
+    run ([this, client = client, version, file = w.file, generation = w.generation, slotIndex, cancelled = w.cancelled]
     {
         juce::String url;
         auto outcome = client->fetchDownloadUrl (version.id, url);
