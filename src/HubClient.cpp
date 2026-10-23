@@ -122,8 +122,8 @@ juce::Result HubClient::check (const HttpResponse& response) const
 {
     if (response.status == 401)
         return juce::Result::fail (unauthorized);
-    if (response.error.isNotEmpty())
-        return juce::Result::fail (response.error);
+    if (response.error.isNotEmpty())   // a server text must not pass for the 401 marker
+        return juce::Result::fail (response.error == unauthorized ? "HTTP " + juce::String (response.status) : response.error);
     if (response.status < 200 || response.status >= 300)
         return juce::Result::fail ("HTTP " + juce::String (response.status));
     return juce::Result::ok();

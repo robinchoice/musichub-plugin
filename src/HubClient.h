@@ -52,7 +52,7 @@ public:
     enum class Poll { pending, approved, expired, failed };
     Poll pollDeviceLogin (const juce::String& deviceCode, juce::String& tokenOut, HubUser& userOut, juce::String& errorOut);
 
-    // These fail with `unauthorized` once the token is no longer valid
+    // These fail with `unauthorized` exactly when the hub answers 401
     juce::Result logout (const juce::String& token);
     juce::Result fetchProjects (std::vector<HubProject>& out);
     juce::Result fetchTracks (const juce::String& projectId, std::vector<HubTrack>& out);

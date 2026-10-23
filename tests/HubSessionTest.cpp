@@ -151,6 +151,24 @@ void testAnswerAfterLogout (int status, const char* listName, const char* errorN
     check (session.getLogin() == HubSession::Login::loggedOut, "still logged out");
 }
 
+// Only a 401 ends the login, not an error text that happens to read "unauthorized"
+void testRejectedRequest (int status, bool staysLoggedIn, const char* what)
+{
+    FakeHub hub ([status] (const juce::String& request, juce::WaitableEvent&) -> FakeHub::Response
+    {
+        if (request == "GET /api/v1/projects")
+            return { status, R"({"error":"unauthorized"})" };
+        return {};
+    });
+    TestDirectory dir;
+    dir.storeLogin (hub.url());
+
+    HubSession session ("test", hub.url(), dir.directory);
+    pumpUntil ([&] { return session.getLastError().isNotEmpty(); });
+    check (session.getLastError().isNotEmpty(), "the rejection is reported");
+    check ((session.getLogin() == HubSession::Login::loggedIn) == staysLoggedIn, what);
+}
+
 // Removing the plugin while the hub doesn't answer must neither hang nor
 // leave jobs running on a destroyed session
 void testDestroyWhileRequestHangs()
@@ -182,5 +200,7 @@ void testHubSession()
     const juce::ScopedJuceInitialiser_GUI juce;
     testAnswerAfterLogout (200, "project list from before logout is dropped", "no error after logout");
     testAnswerAfterLogout (401, "rejected request from before logout is dropped", "late 401 doesn't report an expired login");
+    testRejectedRequest (401, false, "401 ends the login");
+    testRejectedRequest (403, true, "403 with the text unauthorized keeps the login");
     testDestroyWhileRequestHangs();
 }
