@@ -47,8 +47,8 @@ public:
     Engine engine;
     HubSession session;
 
-    // The slot that is audible right now: the chosen one, or the live mix
-    // while its slot is empty, the transport stands still or a bounce renders
+    // The slot that is audible right now: the chosen one, or the live mix while
+    // the transport stands still or a bounce renders. An empty slot is silent.
     int getAudibleSource() const noexcept { return audibleSource.load(); }
 
 private:

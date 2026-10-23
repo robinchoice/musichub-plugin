@@ -271,11 +271,10 @@ void MusicHubAudioProcessorEditor::timerCallback()
     const int chosen = juce::roundToInt (processor.parameters.getRawParameterValue (MusicHubAudioProcessor::sourceParameterId)->load());
     const int audible = processor.getAudibleSource();
     juce::String text = de ("H\xC3\xB6rbar: ") + slotName (audible);
-    if (chosen != 0 && audible != chosen)
-    {
-        const bool slotReady = session.getSlot (chosen).status == HubSession::SlotStatus::ready;
-        text << (slotReady ? "  (Transport steht oder Offline-Render)" : "  (Slot " + slotName (chosen) + " ist noch leer)");
-    }
+    if (audible != 0 && session.getSlot (audible).status != HubSession::SlotStatus::ready)
+        text << "  (Slot " << slotName (audible) << " ist noch leer, Stille)";
+    else if (chosen != 0 && audible != chosen)
+        text << "  (Transport steht oder Offline-Render)";
     audibleLabel.setText (text, juce::dontSendNotification);
 }
 
