@@ -10,6 +10,7 @@ namespace
 {
 // A Music Hub API on localhost. Answers one connection at a time with what
 // `respond` returns for the request line, e.g. "GET /api/v1/projects".
+// Responses held back wait for `release`.
 class FakeHub : private juce::Thread
 {
 public:
@@ -19,7 +20,9 @@ public:
         juce::String body = "{}";
     };
 
-    explicit FakeHub (std::function<Response (const juce::String&)> respondTo)
+    using Respond = std::function<Response (const juce::String& request, juce::WaitableEvent& release)>;
+
+    explicit FakeHub (Respond respondTo)
         : juce::Thread ("FakeHub"), respond (std::move (respondTo))
     {
         listener.createListener (0, "127.0.0.1");
@@ -36,7 +39,6 @@ public:
 
     juce::String url() const { return "http://127.0.0.1:" + juce::String (listener.getBoundPort()); }
 
-    // Held responses wait for this
     juce::WaitableEvent release { true };
     std::atomic<int> received { 0 }, answered { 0 };
 
@@ -53,7 +55,7 @@ private:
 
             const auto requestLine = readRequest (*connection).upToLastOccurrenceOf (" HTTP/", false, false);
             ++received;
-            const auto response = respond (requestLine);
+            const auto response = respond (requestLine, release);
             const auto body = response.body.toStdString();
             const auto head = "HTTP/1.1 " + juce::String (response.status) + " X\r\nContent-Type: application/json\r\n"
                               "Content-Length: " + juce::String ((int) body.size()) + "\r\nConnection: close\r\n\r\n";
@@ -87,7 +89,7 @@ private:
     }
 
     juce::StreamingSocket listener;
-    std::function<Response (const juce::String&)> respond;
+    Respond respond;
 };
 
 struct TestDirectory
@@ -123,11 +125,11 @@ constexpr auto projectList = R"({"projects":[{"project":{"id":"p1","name":"Album
 // The project list was requested before logging out and arrives afterwards
 void testAnswerAfterLogout (int status, const char* listName, const char* errorName)
 {
-    FakeHub hub ([&] (const juce::String& request) -> FakeHub::Response
+    FakeHub hub ([status] (const juce::String& request, juce::WaitableEvent& release) -> FakeHub::Response
     {
         if (request == "GET /api/v1/projects")
         {
-            hub.release.wait (5000);
+            release.wait (5000);
             return { status, status == 401 ? R"({"error":"unauthorized"})" : projectList };
         }
         return {};
@@ -153,9 +155,9 @@ void testAnswerAfterLogout (int status, const char* listName, const char* errorN
 // leave jobs running on a destroyed session
 void testDestroyWhileRequestHangs()
 {
-    FakeHub hub ([&] (const juce::String&) -> FakeHub::Response
+    FakeHub hub ([] (const juce::String&, juce::WaitableEvent& release) -> FakeHub::Response
     {
-        hub.release.wait (30000);
+        release.wait (30000);
         return {};
     });
     TestDirectory dir;
