@@ -3,28 +3,11 @@
 #include "Engine.h"
 #include "Loudness.h"
 
-#include <cmath>
-#include <cstdio>
+#include "Check.h"
+
 #include <atomic>
 #include <memory>
 #include <thread>
-
-static int failures = 0;
-
-static void check (bool ok, const char* what)
-{
-    std::printf ("%s %s\n", ok ? "ok  " : "FAIL", what);
-    if (! ok)
-        ++failures;
-}
-
-static void checkNear (double value, double expected, double tolerance, const char* what)
-{
-    const bool ok = std::abs (value - expected) <= tolerance;
-    std::printf ("%s %s (%.3f, expected %.3f ± %.3f)\n", ok ? "ok  " : "FAIL", what, value, expected, tolerance);
-    if (! ok)
-        ++failures;
-}
 
 // EBU Tech 3341: a stereo 1 kHz sine at -23 dBFS reads -23.0 LUFS ± 0.1.
 static void testLoudness (double sampleRate)
@@ -229,12 +212,15 @@ static void testEngine()
     check (engine.getSlotAudio (1)->buffer.getNumSamples() == 100, "new audio is active");
 }
 
+void testHubSession();
+
 int main()
 {
     testLoudness (48000.0);
     testLoudness (44100.0);
     testConcurrentReset();
     testEngine();
+    testHubSession();
 
     std::printf ("%s\n", failures == 0 ? "All tests passed" : "Tests failed");
     return failures == 0 ? 0 : 1;

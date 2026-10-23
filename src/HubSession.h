@@ -35,8 +35,17 @@ public:
         double integratedLufs = -std::numeric_limits<double>::infinity();
     };
 
-    explicit HubSession (juce::String clientName);
+    // Defaults: MUSICHUB_URL or hub.pleasance.org, and the user's Music Hub
+    // directory for credentials and the download cache.
+    explicit HubSession (juce::String clientName,
+                         juce::String baseUrl = baseUrlFromEnvironment(),
+                         juce::File dataDirectory = defaultDataDirectory());
+
+    // Aborts running requests and waits for the worker threads
     ~HubSession() override;
+
+    static juce::String baseUrlFromEnvironment();
+    static juce::File defaultDataDirectory();
 
     Login getLogin() const noexcept { return login; }
     const HubUser& getUser() const noexcept { return user; }
@@ -98,10 +107,10 @@ private:
     void decodeSlot (int slotIndex);
     void dropSlotAudio (int slotIndex);
     juce::File cacheFileFor (const HubVersion& version) const;
-    static juce::File dataDirectory();
 
     std::shared_ptr<HubClient> client;
     const juce::String clientName;
+    const juce::File dataDirectory;
     juce::ThreadPool pool { juce::ThreadPoolOptions{}.withNumberOfThreads (2) };
     juce::AudioFormatManager formats;
 

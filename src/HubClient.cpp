@@ -52,6 +52,28 @@ juce::String HubClient::getToken() const
     return token;
 }
 
+HubClient::Running::Running (HubClient& c, juce::WebInputStream& s) : client (c), stream (s)
+{
+    const juce::ScopedLock lock (client.runningLock);
+    client.running.add (&stream);
+    if (client.cancelledAll)
+        stream.cancel();
+}
+
+HubClient::Running::~Running()
+{
+    const juce::ScopedLock lock (client.runningLock);
+    client.running.removeFirstMatchingValue (&stream);
+}
+
+void HubClient::cancel()
+{
+    const juce::ScopedLock lock (runningLock);
+    cancelledAll = true;
+    for (auto* stream : running)
+        stream->cancel();
+}
+
 HubClient::HttpResponse HubClient::request (const juce::String& method, const juce::String& path, const juce::var& body,
                                             std::optional<juce::String> bearer)
 {
@@ -69,22 +91,22 @@ HubClient::HttpResponse HubClient::request (const juce::String& method, const ju
     if (const auto token = bearer.value_or (getToken()); token.isNotEmpty())
         headers << "Authorization: Bearer " << token << "\r\n";
 
-    const auto options = juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
-                             .withExtraHeaders (headers)
-                             .withHttpRequestCmd (method)
-                             .withConnectionTimeoutMs (15000)
-                             .withNumRedirectsToFollow (0)
-                             .withStatusCode (&response.status);
+    juce::WebInputStream stream (url, false);
+    stream.withExtraHeaders (headers)
+          .withCustomRequestCommand (method)
+          .withConnectionTimeout (15000)
+          .withNumRedirectsToFollow (0);
+    const Running registered (*this, stream);
 
-    const auto stream = url.createInputStream (options);
-
-    if (stream == nullptr)
+    const bool connected = stream.connect (nullptr);
+    response.status = stream.getStatusCode();
+    if (! connected || stream.isError())
     {
         response.error = "Keine Verbindung zu " + baseUrl;
         return response;
     }
 
-    response.json = juce::JSON::parse (stream->readEntireStreamAsString());
+    response.json = juce::JSON::parse (stream.readEntireStreamAsString());
 
     if (response.status >= 400)
     {
@@ -220,14 +242,14 @@ juce::Result HubClient::downloadFile (const juce::String& urlString, const juce:
                                       const std::function<void (double)>& onProgress,
                                       const std::atomic<bool>& cancelled)
 {
-    int status = 0;
     // Presigned S3 URLs must stay byte for byte as issued, so no re-encoding of the query
-    const auto stream = juce::URL::createWithoutParsing (urlString).createInputStream (
-        juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
-            .withConnectionTimeoutMs (20000)
-            .withStatusCode (&status));
+    juce::WebInputStream stream (juce::URL::createWithoutParsing (urlString), false);
+    stream.withConnectionTimeout (20000);
+    const Running registered (*this, stream);
 
-    if (stream == nullptr || status >= 400)
+    const bool connected = stream.connect (nullptr);
+    const int status = stream.getStatusCode();
+    if (! connected || stream.isError() || status >= 400)
         return juce::Result::fail ("Download fehlgeschlagen (HTTP " + juce::String (status) + ")");
 
     destination.getParentDirectory().createDirectory();
@@ -241,12 +263,12 @@ juce::Result HubClient::downloadFile (const juce::String& urlString, const juce:
         if (! out.openedOk())
             return juce::Result::fail ("Cache-Datei kann nicht geschrieben werden");
 
-        const auto total = stream->getTotalLength();
+        const auto total = stream.getTotalLength();
         constexpr int chunkSize = 1 << 16;
         juce::HeapBlock<char> chunk (chunkSize);
         juce::int64 done = 0;
 
-        while (! stream->isExhausted())
+        while (! stream.isExhausted())
         {
             if (cancelled.load())
             {
@@ -254,10 +276,10 @@ juce::Result HubClient::downloadFile (const juce::String& urlString, const juce:
                 break;
             }
 
-            const auto n = stream->read (chunk, chunkSize);
+            const auto n = stream.read (chunk, chunkSize);
             if (n <= 0)
             {
-                incomplete = n < 0 || ! stream->isExhausted();
+                incomplete = n < 0 || ! stream.isExhausted();
                 break;
             }
 
@@ -274,8 +296,7 @@ juce::Result HubClient::downloadFile (const juce::String& urlString, const juce:
 
         out.flush();
         incomplete = incomplete || (total >= 0 && done != total) || out.getStatus().failed();
-        if (auto* web = dynamic_cast<juce::WebInputStream*> (stream.get()))
-            incomplete = incomplete || web->isError();
+        incomplete = incomplete || stream.isError();
     }
 
     if (aborted)

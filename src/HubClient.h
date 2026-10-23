@@ -63,9 +63,21 @@ public:
                                const std::function<void (double)>& onProgress,
                                const std::atomic<bool>& cancelled);
 
+    // Any thread: aborts running requests and fails all later ones
+    void cancel();
+
     static constexpr const char* unauthorized = "unauthorized";
 
 private:
+    // Registers a stream so cancel() can abort it while it blocks
+    struct Running
+    {
+        Running (HubClient&, juce::WebInputStream&);
+        ~Running();
+        HubClient& client;
+        juce::WebInputStream& stream;
+    };
+
     struct HttpResponse
     {
         int status = 0;
@@ -80,4 +92,8 @@ private:
     juce::String baseUrl;
     juce::String token;
     mutable juce::CriticalSection tokenLock;
+
+    juce::CriticalSection runningLock;
+    juce::Array<juce::WebInputStream*> running;
+    bool cancelledAll = false;
 };

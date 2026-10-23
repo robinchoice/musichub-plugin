@@ -15,11 +15,6 @@ constexpr auto defaultBaseUrl = "https://hub.pleasance.org";
 constexpr auto credentialsFileName = "credentials.json";
 constexpr auto sessionExpiredMessage = "Die Anmeldung ist abgelaufen. Bitte neu verbinden.";
 
-juce::String baseUrlFromEnvironment()
-{
-    return juce::SystemStats::getEnvironmentVariable ("MUSICHUB_URL", defaultBaseUrl).trimCharactersAtEnd ("/");
-}
-
 juce::String text (const juce::var& object, const char* key)
 {
     return object.getProperty (key, juce::var()).toString();
@@ -70,8 +65,23 @@ std::shared_ptr<LoadedAudio> decodeFile (juce::AudioFormatManager& formats, cons
 }
 } // namespace
 
-HubSession::HubSession (juce::String name)
-    : client (std::make_shared<HubClient> (baseUrlFromEnvironment())), clientName (std::move (name))
+juce::String HubSession::baseUrlFromEnvironment()
+{
+    return juce::SystemStats::getEnvironmentVariable ("MUSICHUB_URL", defaultBaseUrl).trimCharactersAtEnd ("/");
+}
+
+juce::File HubSession::defaultDataDirectory()
+{
+    auto base = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory);
+   #if JUCE_MAC
+    base = base.getChildFile ("Application Support");
+   #endif
+    return base.getChildFile ("Music Hub");
+}
+
+HubSession::HubSession (juce::String name, juce::String baseUrl, juce::File directory)
+    : client (std::make_shared<HubClient> (std::move (baseUrl))), clientName (std::move (name)),
+      dataDirectory (std::move (directory))
 {
     // Worker threads take weak references to post their results back. The
     // first one creates the shared state, so do that here before they can race.
@@ -91,7 +101,9 @@ HubSession::~HubSession()
     stopTimer();
     for (auto& w : work)
         w.cancelled->store (true);
-    pool.removeAllJobs (true, 10000);
+    client->cancel();
+    // Jobs use this session's members until they return, so wait for all of them
+    pool.removeAllJobs (true, -1);
     masterReference.clear();
 }
 
@@ -115,18 +127,9 @@ void HubSession::later (std::function<void()> fn)
 
 // Login
 
-juce::File HubSession::dataDirectory()
-{
-    auto base = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory);
-   #if JUCE_MAC
-    base = base.getChildFile ("Application Support");
-   #endif
-    return base.getChildFile ("Music Hub");
-}
-
 void HubSession::readCredentials()
 {
-    const auto json = juce::JSON::parse (dataDirectory().getChildFile (credentialsFileName));
+    const auto json = juce::JSON::parse (dataDirectory.getChildFile (credentialsFileName));
     if (text (json, "baseUrl") != client->getBaseUrl())
         return;
 
@@ -142,7 +145,7 @@ void HubSession::readCredentials()
 
 void HubSession::writeCredentials() const
 {
-    const auto file = dataDirectory().getChildFile (credentialsFileName);
+    const auto file = dataDirectory.getChildFile (credentialsFileName);
     file.getParentDirectory().createDirectory();
 
     auto* stored = new juce::DynamicObject();
@@ -283,7 +286,7 @@ void HubSession::forgetSession (const juce::String& message)
     stopTimer();
     ++loginGeneration;
     client->setToken ({});
-    dataDirectory().getChildFile (credentialsFileName).deleteFile();
+    dataDirectory.getChildFile (credentialsFileName).deleteFile();
 
     login = Login::loggedOut;
     user = {};
@@ -320,13 +323,13 @@ void HubSession::refreshProjects()
     if (login != Login::loggedIn)
         return;
 
-    run ([this, client = client]
+    run ([this, client = client, generation = loginGeneration]
     {
         std::vector<HubProject> result;
         const auto outcome = client->fetchProjects (result);
-        later ([this, outcome, result]
+        later ([this, outcome, result, generation]
         {
-            if (failed (outcome))
+            if (generation != loginGeneration || failed (outcome))
                 return;
 
             projects = result;
@@ -365,13 +368,13 @@ void HubSession::selectProject (const juce::String& id)
 
 void HubSession::fetchTracks()
 {
-    run ([this, client = client, id = projectId]
+    run ([this, client = client, id = projectId, generation = loginGeneration]
     {
         std::vector<HubTrack> result;
         const auto outcome = client->fetchTracks (id, result);
-        later ([this, outcome, result, id]
+        later ([this, outcome, result, id, generation]
         {
-            if (id != projectId || failed (outcome))
+            if (generation != loginGeneration || id != projectId || failed (outcome))
                 return;
 
             tracks = result;
@@ -405,13 +408,13 @@ void HubSession::selectTrack (const juce::String& id)
 
 void HubSession::fetchVersions()
 {
-    run ([this, client = client, id = trackId]
+    run ([this, client = client, id = trackId, generation = loginGeneration]
     {
         std::vector<HubVersion> result;
         const auto outcome = client->fetchVersions (id, result);
-        later ([this, outcome, result, id]
+        later ([this, outcome, result, id, generation]
         {
-            if (id != trackId || failed (outcome))
+            if (generation != loginGeneration || id != trackId || failed (outcome))
                 return;
 
             versions = result;
@@ -441,7 +444,7 @@ juce::File HubSession::cacheFileFor (const HubVersion& version) const
         || name.isEmpty() || name == "." || name == "..")
         return {};
 
-    const auto root = dataDirectory().getChildFile ("cache");
+    const auto root = dataDirectory.getChildFile ("cache");
     const auto file = root.getChildFile (version.id).getChildFile (name);
     return file.isAChildOf (root) ? file : juce::File();
 }

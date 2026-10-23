@@ -69,17 +69,24 @@ target_link_libraries(MusicHub
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
 
-# Engine and loudness meter tests, no plugin host needed
-juce_add_console_app(MusicHubTests PRODUCT_NAME "MusicHubTests")
+# Engine, loudness meter and session tests (against a local fake hub), no plugin host needed
+juce_add_console_app(MusicHubTests PRODUCT_NAME "MusicHubTests" NEEDS_CURL TRUE)
 target_sources(MusicHubTests PRIVATE
   tests/EngineTest.cpp
+  tests/HubSessionTest.cpp
   src/Engine.cpp
-  src/Loudness.cpp)
+  src/Loudness.cpp
+  src/HubClient.cpp
+  src/HubSession.cpp)
 target_include_directories(MusicHubTests PRIVATE src)
-target_compile_definitions(MusicHubTests PRIVATE JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0)
+target_compile_definitions(MusicHubTests PRIVATE
+  JUCE_LOAD_CURL_SYMBOLS_LAZILY=1
+  JUCE_WEB_BROWSER=0
+  JUCE_MODAL_LOOPS_PERMITTED=1)
 target_link_libraries(MusicHubTests
   PRIVATE
-    juce::juce_audio_basics
+    juce::juce_audio_formats
+    juce::juce_data_structures
   PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
