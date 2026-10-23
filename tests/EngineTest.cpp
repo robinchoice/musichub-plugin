@@ -5,7 +5,9 @@
 
 #include <cmath>
 #include <cstdio>
+#include <atomic>
 #include <memory>
+#include <thread>
 
 static int failures = 0;
 
@@ -44,6 +46,45 @@ static void testLoudness (double sampleRate)
     juce::AudioBuffer<float> silence (2, n);
     silence.clear();
     check (std::isinf (LoudnessMeter::measure (silence, sampleRate)), "silence is gated out");
+}
+
+// The editor resets and reads the live meter while the audio thread feeds it.
+// Readings must stay those of the signal; ThreadSanitizer checks the access.
+static void testConcurrentReset()
+{
+    const double sampleRate = 8000.0;
+    juce::AudioBuffer<float> sine (2, 8000);
+    const float amplitude = juce::Decibels::decibelsToGain (-20.0f);
+    for (int i = 0; i < sine.getNumSamples(); ++i)
+    {
+        const float v = amplitude * (float) std::sin (2.0 * juce::MathConstants<double>::pi * 1000.0 * i / sampleRate);
+        sine.setSample (0, i, v);
+        sine.setSample (1, i, v);
+    }
+    const double expected = LoudnessMeter::measure (sine, sampleRate);
+
+    LoudnessMeter meter;
+    meter.prepare (sampleRate);
+    std::atomic<bool> done { false };
+    std::thread audio ([&]
+    {
+        const float* channels[2] = { sine.getReadPointer (0), sine.getReadPointer (1) };
+        while (! done.load())
+            meter.process (channels, 2, sine.getNumSamples());
+    });
+
+    bool valid = true;
+    for (int i = 0; i < 20000; ++i)
+    {
+        if (i % 4 == 0)
+            meter.reset();
+        for (const double value : { meter.integratedLufs(), meter.shortTermLufs() })
+            if (! std::isinf (value) && std::abs (value - expected) > 0.5)
+                valid = false;
+    }
+    done.store (true);
+    audio.join();
+    check (valid, "readings stay valid while the meter resets");
 }
 
 static std::shared_ptr<LoadedAudio> makeRamp (int length)
@@ -192,6 +233,7 @@ int main()
 {
     testLoudness (48000.0);
     testLoudness (44100.0);
+    testConcurrentReset();
     testEngine();
 
     std::printf ("%s\n", failures == 0 ? "All tests passed" : "Tests failed");

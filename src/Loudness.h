@@ -48,6 +48,12 @@ private:
 
     void doReset();
 
+    // Runs read (hopCount) again until no reset overwrote the hops it read
+    template <typename Read>
+    double readConsistent (Read&& read) const;
+    double integratedOver (int count) const;
+    double hop (int index) const { return hops[(size_t) index].load (std::memory_order_relaxed); }
+
     Biquad shelf, highpass;
     std::array<ChannelState, maxChannels> states;
     std::array<double, maxChannels> hopSum {};
@@ -55,7 +61,10 @@ private:
 
     // Mean square per hop, summed over channels. The audio thread writes at
     // hopCount and publishes by incrementing it; readers never go past it.
-    std::vector<double> hops = std::vector<double> (capacity, 0.0);
+    // A reset starts again at 0 and overwrites hops a reader may still be
+    // reading, so it bumps `resets` first and readers retry when it changed.
+    std::vector<std::atomic<double>> hops = std::vector<std::atomic<double>> (capacity);
     std::atomic<int> hopCount { 0 };
+    std::atomic<unsigned> resets { 0 };
     std::atomic<bool> resetRequested { false };
 };

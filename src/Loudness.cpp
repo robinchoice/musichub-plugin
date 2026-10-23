@@ -44,7 +44,22 @@ void LoudnessMeter::doReset()
     states.fill ({});
     hopSum.fill (0.0);
     hopFill = 0;
-    hopCount.store (0);
+    resets.fetch_add (1, std::memory_order_relaxed);
+    std::atomic_thread_fence (std::memory_order_release);
+    hopCount.store (0, std::memory_order_release);
+}
+
+template <typename Read>
+double LoudnessMeter::readConsistent (Read&& read) const
+{
+    for (;;)
+    {
+        const auto before = resets.load (std::memory_order_acquire);
+        const double value = read (hopCount.load (std::memory_order_acquire));
+        std::atomic_thread_fence (std::memory_order_acquire);
+        if (resets.load (std::memory_order_relaxed) == before)
+            return value;
+    }
 }
 
 void LoudnessMeter::process (const float* const* channels, int numChannels, int numSamples)
@@ -82,7 +97,7 @@ void LoudnessMeter::process (const float* const* channels, int numChannels, int 
             const int count = hopCount.load (std::memory_order_relaxed);
             if (count < capacity)
             {
-                hops[(size_t) count] = sum;
+                hops[(size_t) count].store (sum, std::memory_order_relaxed);
                 hopCount.store (count + 1, std::memory_order_release);
             }
 
@@ -94,7 +109,11 @@ void LoudnessMeter::process (const float* const* channels, int numChannels, int 
 
 double LoudnessMeter::integratedLufs() const
 {
-    const int count = hopCount.load (std::memory_order_acquire);
+    return readConsistent ([this] (int count) { return integratedOver (count); });
+}
+
+double LoudnessMeter::integratedOver (int count) const
+{
     if (count < hopsPerBlock)
         return minusInfinity;
 
@@ -104,9 +123,9 @@ double LoudnessMeter::integratedLufs() const
     double window = 0.0;
     for (int i = 0; i < count; ++i)
     {
-        window += hops[(size_t) i];
+        window += hop (i);
         if (i >= hopsPerBlock)
-            window -= hops[(size_t) (i - hopsPerBlock)];
+            window -= hop (i - hopsPerBlock);
 
         if (i >= hopsPerBlock - 1)
         {
@@ -141,16 +160,18 @@ double LoudnessMeter::integratedLufs() const
 
 double LoudnessMeter::shortTermLufs() const
 {
-    const int count = hopCount.load (std::memory_order_acquire);
-    if (count == 0)
-        return minusInfinity;
+    return readConsistent ([this] (int count)
+    {
+        if (count == 0)
+            return minusInfinity;
 
-    const int n = juce::jmin (count, shortTermHops);
-    double sum = 0.0;
-    for (int i = count - n; i < count; ++i)
-        sum += hops[(size_t) i];
+        const int n = juce::jmin (count, shortTermHops);
+        double sum = 0.0;
+        for (int i = count - n; i < count; ++i)
+            sum += hop (i);
 
-    return lufs (sum / n);
+        return lufs (sum / n);
+    });
 }
 
 double LoudnessMeter::measure (const juce::AudioBuffer<float>& buffer, double sampleRate)
