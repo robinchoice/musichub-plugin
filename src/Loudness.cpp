@@ -44,9 +44,11 @@ void LoudnessMeter::doReset()
     states.fill ({});
     hopSum.fill (0.0);
     hopFill = 0;
-    resets.fetch_add (1, std::memory_order_relaxed);
+    // A reader that sees the new reset count also sees the count of 0, and a
+    // reader that sees any hop written after this also sees the new reset count
+    hopCount.store (0, std::memory_order_relaxed);
+    resets.fetch_add (1, std::memory_order_release);
     std::atomic_thread_fence (std::memory_order_release);
-    hopCount.store (0, std::memory_order_release);
 }
 
 template <typename Read>
