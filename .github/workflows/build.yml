@@ -55,6 +55,17 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel 4
 
+      # Logic only loads AUs that pass auval; check both slices of the
+      # universal binary, the Intel one under Rosetta.
+      - name: Validate AU (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "build/MusicHub_artefacts/Release/AU/Music Hub.component" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          auval -v aufx Mhab Mhub
+          arch -x86_64 auval -v aufx Mhab Mhub
+
       # Unsigned builds: macOS needs the quarantine flag removed, and AAX only
       # loads in Pro Tools Developer until the bundles are signed with PACE.
       - name: Package (macOS)

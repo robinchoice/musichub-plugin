@@ -13,6 +13,7 @@ ctest --test-dir build --output-on-failure
 ```
 
 - The tests include `HubSession` against a fake hub on localhost, so Linux needs the libcurl headers. CI runs them a second time under ThreadSanitizer.
+- On macOS, CI also validates the AU with `auval`, for both arm64 and x86_64 (via Rosetta).
 
 ## Deploy
 
