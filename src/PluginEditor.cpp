@@ -14,6 +14,12 @@ juce::String lufsText (double lufs)
     return std::isfinite (lufs) ? juce::String (lufs, 1) + " LUFS" : juce::String ("-- LUFS");
 }
 
+juce::String duration (double seconds)
+{
+    const int total = juce::roundToInt (seconds);
+    return juce::String (total / 60) + ":" + juce::String (total % 60).paddedLeft ('0', 2);
+}
+
 juce::Font font (float height, bool bold = false)
 {
     auto options = juce::FontOptions (height);
@@ -154,6 +160,31 @@ MusicHubAudioProcessorEditor::MusicHubAudioProcessorEditor (MusicHubAudioProcess
     audibleLabel.setFont (font (13.0f));
     addAndMakeVisible (audibleLabel);
 
+    bounceToggle.setButtonText (de ("N\xC3\xA4" "chsten Bounce hochladen"));
+    bounceToggle.onClick = [this]
+    {
+        processor.capture.setArmed (bounceToggle.getToggleState());
+        processor.captureError.clear();
+        updateBounce();
+    };
+    addAndMakeVisible (bounceToggle);
+
+    bounceLabelEditor.setTextToShowWhenEmpty ("Label (optional)", juce::Colours::grey);
+    bounceLabelEditor.setInputRestrictions (100);
+    bounceLabelEditor.onTextChange = [this] { session.bounceLabel = bounceLabelEditor.getText(); };
+    addAndMakeVisible (bounceLabelEditor);
+
+    bounceStatus.setFont (font (13.0f));
+    addAndMakeVisible (bounceStatus);
+
+    retryButton.setButtonText ("Erneut versuchen");
+    retryButton.onClick = [this] { session.retryUpload(); };
+    addChildComponent (retryButton);
+
+    discardButton.setButtonText ("Verwerfen");
+    discardButton.onClick = [this] { session.discardUpload(); };
+    addChildComponent (discardButton);
+
     errorLabel.setFont (font (13.0f));
     errorLabel.setColour (juce::Label::textColourId, juce::Colour (0xfffb923c));
     addAndMakeVisible (errorLabel);
@@ -258,8 +289,52 @@ void MusicHubAudioProcessorEditor::refresh()
         row.status.setText (status, juce::dontSendNotification);
     }
 
+    if (bounceLabelEditor.getText() != session.bounceLabel)
+        bounceLabelEditor.setText (session.bounceLabel, false);
+    updateBounce();
+
     errorLabel.setText (session.getLastError(), juce::dontSendNotification);
     resized();
+}
+
+// The bounce row: arming, recording and upload progress
+void MusicHubAudioProcessorEditor::updateBounce()
+{
+    auto& capture = processor.capture;
+    const auto& upload = session.getUpload();
+    const bool armed = capture.isArmed();
+    const bool canArm = session.getLogin() == HubSession::Login::loggedIn && session.getTrackId().isNotEmpty()
+                        && ! session.isUploadPending();
+
+    bounceToggle.setToggleState (armed, juce::dontSendNotification);
+    bounceToggle.setEnabled (armed || canArm);
+    bounceLabelEditor.setEnabled (armed || canArm);
+
+    juce::String text;
+    if (capture.isRecording())
+        text = de ("Bounce l\xC3\xA4uft, nimmt auf \xE2\x80\xA6 ") + duration (capture.getRecordedSeconds());
+    else if (upload.status == HubSession::UploadStatus::uploading)
+        text = "Bounce " + duration (upload.seconds) + de (" aufgenommen, lade hoch \xE2\x80\xA6 ")
+               + juce::String ((int) (upload.progress * 100.0)) + " %";
+    else if (upload.status == HubSession::UploadStatus::failed)
+        text = "Upload fehlgeschlagen: " + upload.error;
+    else if (processor.captureError.isNotEmpty())
+        text = processor.captureError;
+    else if (armed)
+        text = de ("Wartet auf den n\xC3\xA4" "chsten Offline-Bounce");
+    else if (upload.status == HubSession::UploadStatus::done)
+        text = "V" + juce::String (upload.versionNumber) + " hochgeladen";
+    else if (! canArm && session.getLogin() == HubSession::Login::loggedIn)
+        text = de ("Track w\xC3\xA4hlen, um Bounces hochzuladen");
+    bounceStatus.setText (text, juce::dontSendNotification);
+
+    const bool failed = upload.status == HubSession::UploadStatus::failed;
+    if (retryButton.isVisible() != failed)
+    {
+        retryButton.setVisible (failed);
+        discardButton.setVisible (failed);
+        resized();
+    }
 }
 
 void MusicHubAudioProcessorEditor::timerCallback()
@@ -276,6 +351,8 @@ void MusicHubAudioProcessorEditor::timerCallback()
     else if (chosen != 0 && audible != chosen)
         text << "  (Transport steht oder Offline-Render)";
     audibleLabel.setText (text, juce::dontSendNotification);
+
+    updateBounce();
 }
 
 void MusicHubAudioProcessorEditor::paint (juce::Graphics& g)
@@ -345,7 +422,23 @@ void MusicHubAudioProcessorEditor::resized()
     resetMeterButton.setBounds (bottom.removeFromRight (170));
     bottom.removeFromRight (8);
     liveLabel.setBounds (bottom);
-    area.removeFromTop (6);
+    area.removeFromTop (14);
+
+    auto bounce = area.removeFromTop (28);
+    bounceToggle.setBounds (bounce.removeFromLeft (230));
+    bounce.removeFromLeft (8);
+    bounceLabelEditor.setBounds (bounce.removeFromLeft (260));
+    auto statusRow = area.removeFromTop (28);
+    if (retryButton.isVisible())
+    {
+        discardButton.setBounds (statusRow.removeFromRight (110));
+        statusRow.removeFromRight (8);
+        retryButton.setBounds (statusRow.removeFromRight (150));
+        statusRow.removeFromRight (8);
+    }
+    bounceStatus.setBounds (statusRow);
+    area.removeFromTop (8);
+
     audibleLabel.setBounds (area.removeFromTop (22));
     errorLabel.setBounds (area.removeFromTop (22));
 }

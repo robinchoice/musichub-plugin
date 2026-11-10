@@ -32,6 +32,7 @@ private:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void timerCallback() override;
     void refresh();
+    void updateBounce();
 
     MusicHubAudioProcessor& processor;
     HubSession& session;
@@ -44,6 +45,11 @@ private:
     juce::ToggleButton levelMatchButton;
     std::unique_ptr<juce::ButtonParameterAttachment> levelMatchAttachment;
     std::array<SlotRow, HubSession::numVersionSlots> slotRows;
+
+    juce::ToggleButton bounceToggle;
+    juce::TextEditor bounceLabelEditor;
+    juce::Label bounceStatus;
+    juce::TextButton retryButton, discardButton;
 
     // Combo box item order to id
     std::vector<juce::String> projectIds, trackIds, versionIds;

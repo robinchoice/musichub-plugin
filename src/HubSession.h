@@ -78,6 +78,35 @@ public:
     // Versions are decoded at the host rate; a change decodes the loaded slots again
     void setHostSampleRate (double sampleRate);
 
+    // A recorded bounce on its way to the hub as the next version of a track.
+    // One at a time; a failed one keeps its file until retried or discarded.
+    enum class UploadStatus { none, uploading, done, failed };
+
+    struct Upload
+    {
+        UploadStatus status = UploadStatus::none;
+        juce::File file;
+        juce::String trackId, label, error;
+        double seconds = 0, progress = 0;
+        int versionNumber = 0;
+    };
+
+    const Upload& getUpload() const noexcept { return upload; }
+    bool isUploadPending() const noexcept
+    {
+        return upload.status == UploadStatus::uploading || upload.status == UploadStatus::failed;
+    }
+
+    // Label for the next uploaded bounce
+    juce::String bounceLabel;
+
+    // Uploads to the chosen track with bounceLabel, which it then clears
+    void uploadBounce (const juce::File& file, double seconds);
+    void retryUpload();
+    void discardUpload();
+
+    const juce::File& getDataDirectory() const noexcept { return dataDirectory; }
+
     juce::ValueTree toState() const;
     void restoreState (const juce::ValueTree& state);
 
@@ -107,6 +136,8 @@ private:
     void decodeSlot (int slotIndex);
     void dropSlotAudio (int slotIndex);
     juce::File cacheFileFor (const HubVersion& version) const;
+    void startUpload();
+    void cancelUpload (const juce::String& reason);
 
     std::shared_ptr<HubClient> client;
     const juce::String clientName;
@@ -129,6 +160,10 @@ private:
     std::array<Slot, numVersionSlots> slots;
     std::array<SlotWork, numVersionSlots> work;
     std::atomic<double> hostSampleRate { 0.0 };
+
+    Upload upload;
+    int uploadGeneration = 0;
+    std::shared_ptr<std::atomic<bool>> uploadCancelled = std::make_shared<std::atomic<bool>> (false);
 
     JUCE_DECLARE_WEAK_REFERENCEABLE (HubSession)
 };

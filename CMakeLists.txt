@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.22)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "macOS architectures")
 
-project(MusicHubPlugin VERSION 0.2.0 LANGUAGES C CXX)
+project(MusicHubPlugin VERSION 0.3.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -47,6 +47,7 @@ juce_add_plugin(MusicHub
 juce_generate_juce_header(MusicHub)
 
 target_sources(MusicHub PRIVATE
+  src/Capture.cpp
   src/Engine.cpp
   src/Loudness.cpp
   src/HubClient.cpp
@@ -65,15 +66,18 @@ target_compile_definitions(MusicHub PUBLIC
 target_link_libraries(MusicHub
   PRIVATE
     juce::juce_audio_utils
+    juce::juce_cryptography
   PUBLIC
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
 
-# Engine, loudness meter and session tests (against a local fake hub), no plugin host needed
+# Engine, loudness meter, capture and session tests (against a local fake hub), no plugin host needed
 juce_add_console_app(MusicHubTests PRODUCT_NAME "MusicHubTests" NEEDS_CURL TRUE)
 target_sources(MusicHubTests PRIVATE
   tests/EngineTest.cpp
+  tests/CaptureTest.cpp
   tests/HubSessionTest.cpp
+  src/Capture.cpp
   src/Engine.cpp
   src/Loudness.cpp
   src/HubClient.cpp
@@ -86,6 +90,7 @@ target_compile_definitions(MusicHubTests PRIVATE
 target_link_libraries(MusicHubTests
   PRIVATE
     juce::juce_audio_formats
+    juce::juce_cryptography
     juce::juce_data_structures
   PUBLIC
     juce::juce_recommended_config_flags

@@ -122,6 +122,8 @@ juce::Result HubClient::check (const HttpResponse& response) const
 {
     if (response.status == 401)
         return juce::Result::fail (unauthorized);
+    if (response.status == 403 && response.error == "Forbidden")
+        return juce::Result::fail ("Keine Berechtigung");
     if (response.error.isNotEmpty())   // a server text must not pass for the 401 marker
         return juce::Result::fail (response.error == unauthorized ? "HTTP " + juce::String (response.status) : response.error);
     if (response.status < 200 || response.status >= 300)
@@ -308,5 +310,91 @@ juce::Result HubClient::downloadFile (const juce::String& urlString, const juce:
     if (! temporary.overwriteTargetFileWithTemporary())
         return juce::Result::fail ("Cache-Datei kann nicht umbenannt werden");
 
+    return juce::Result::ok();
+}
+
+juce::Result HubClient::requestUploadUrl (const juce::String& trackId, const juce::String& fileName, const juce::String& mimeType,
+                                          juce::int64 fileSize, UploadTarget& out)
+{
+    auto* body = new juce::DynamicObject();
+    body->setProperty ("fileName", fileName);
+    body->setProperty ("mimeType", mimeType);
+    body->setProperty ("fileSize", fileSize);
+
+    const auto response = request ("POST", "/versions/track/" + juce::URL::addEscapeChars (trackId, true) + "/upload-url",
+                                   juce::var (body));
+    if (const auto result = check (response); result.failed())
+        return result;
+
+    out.uploadUrl = str (response.json, "uploadUrl");
+    out.fileKey = str (response.json, "fileKey");
+    return out.uploadUrl.isNotEmpty() && out.fileKey.isNotEmpty() ? juce::Result::ok()
+                                                                   : juce::Result::fail ("Keine Upload-URL erhalten");
+}
+
+juce::Result HubClient::putFile (const juce::String& urlString, const juce::File& file, const juce::String& mimeType,
+                                 const std::function<void (double)>& onProgress, const std::atomic<bool>& cancelled)
+{
+    // Presigned: the URL stays as issued, Content-Type is part of the signature,
+    // and the bucket gets no bearer token
+    auto url = juce::URL::createWithoutParsing (urlString);
+    {
+        juce::MemoryBlock data;   // the URL keeps its own copy
+        if (! file.loadFileAsData (data))
+            return juce::Result::fail ("Aufnahme kann nicht gelesen werden");
+        url = url.withPOSTData (data);
+    }
+
+    struct Progress : juce::WebInputStream::Listener
+    {
+        Progress (const std::function<void (double)>& f, const std::atomic<bool>& c) : report (f), stop (c) {}
+
+        bool postDataSendProgress (juce::WebInputStream&, int sent, int total) override
+        {
+            if (total > 0 && report != nullptr)
+                report ((double) sent / (double) total);
+            return ! stop.load();
+        }
+
+        const std::function<void (double)>& report;
+        const std::atomic<bool>& stop;
+    } progress (onProgress, cancelled);
+
+    juce::WebInputStream stream (url, false);
+    stream.withExtraHeaders ("Content-Type: " + mimeType + "\r\n")
+          .withCustomRequestCommand ("PUT")
+          .withConnectionTimeout (20000)
+          .withNumRedirectsToFollow (0);
+    const Running registered (*this, stream);
+
+    const bool connected = stream.connect (&progress);
+    if (cancelled.load())
+        return juce::Result::fail ("Abgebrochen");
+
+    const int status = stream.getStatusCode();
+    if (! connected || stream.isError() || status < 200 || status >= 300)
+        return juce::Result::fail ("Upload fehlgeschlagen (" + (status > 0 ? "HTTP " + juce::String (status) : juce::String ("keine Verbindung")) + ")");
+
+    return juce::Result::ok();
+}
+
+juce::Result HubClient::createVersion (const juce::String& trackId, const juce::String& fileKey, const juce::String& label,
+                                       const juce::String& sha256, const juce::String& fileName, const juce::String& mimeType,
+                                       juce::int64 fileSize, int& versionNumberOut)
+{
+    auto* body = new juce::DynamicObject();
+    body->setProperty ("fileKey", fileKey);
+    if (label.isNotEmpty())
+        body->setProperty ("label", label);
+    body->setProperty ("sha256", sha256);
+    body->setProperty ("originalFileName", fileName);
+    body->setProperty ("mimeType", mimeType);
+    body->setProperty ("fileSize", fileSize);
+
+    const auto response = request ("POST", "/versions/track/" + juce::URL::addEscapeChars (trackId, true), juce::var (body));
+    if (const auto result = check (response); result.failed())
+        return result;
+
+    versionNumberOut = static_cast<int> (response.json["version"].getProperty ("versionNumber", 0));
     return juce::Result::ok();
 }

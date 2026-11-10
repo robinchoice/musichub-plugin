@@ -1,5 +1,7 @@
 #include "HubSession.h"
 
+#include <juce_cryptography/juce_cryptography.h>
+
 #include <algorithm>
 #include <cmath>
 
@@ -101,6 +103,7 @@ HubSession::~HubSession()
     stopTimer();
     for (auto& w : work)
         w.cancelled->store (true);
+    uploadCancelled->store (true);
     client->cancel();
     // Jobs use this session's members until they return, so wait for all of them
     pool.removeAllJobs (true, -1);
@@ -296,6 +299,7 @@ void HubSession::forgetSession (const juce::String& message)
     versions.clear();
     for (int slot = 1; slot <= numVersionSlots; ++slot)
         clearSlot (slot);
+    cancelUpload (message.isNotEmpty() ? message : juce::String ("Abgemeldet"));
 
     lastError = message;
     sendChangeMessage();
@@ -617,6 +621,143 @@ void HubSession::setHostSampleRate (double sampleRate)
             decodeSlot (slot);
         }
     }
+}
+
+// Uploading a recorded bounce
+
+void HubSession::uploadBounce (const juce::File& file, double seconds)
+{
+    cancelUpload ({});
+    upload = {};
+    upload.file = file;
+    upload.seconds = seconds;
+    upload.trackId = trackId;
+    upload.label = std::exchange (bounceLabel, {});
+    startUpload();
+}
+
+void HubSession::retryUpload()
+{
+    if (upload.status == UploadStatus::failed)
+        startUpload();
+}
+
+void HubSession::discardUpload()
+{
+    if (upload.status == UploadStatus::none)
+        return;
+
+    cancelUpload ({});
+    if (upload.status != UploadStatus::done)
+        upload.file.deleteFile();
+    upload = {};
+    sendChangeMessage();
+}
+
+void HubSession::cancelUpload (const juce::String& reason)
+{
+    if (upload.status != UploadStatus::uploading)
+        return;
+
+    uploadCancelled->store (true);
+    uploadCancelled = std::make_shared<std::atomic<bool>> (false);
+    ++uploadGeneration;
+    upload.status = UploadStatus::failed;
+    upload.error = reason;
+    sendChangeMessage();
+}
+
+void HubSession::startUpload()
+{
+    if (upload.trackId.isEmpty())
+        upload.trackId = trackId;
+
+    upload.progress = 0;
+    upload.error.clear();
+    upload.status = UploadStatus::failed;
+    if (login != Login::loggedIn)
+        upload.error = "Nicht mit Music Hub verbunden";
+    else if (upload.trackId.isEmpty())
+        upload.error = juce::String::fromUTF8 ("Kein Track gew\xC3\xA4hlt");
+    else
+        upload.status = UploadStatus::uploading;
+    sendChangeMessage();
+
+    if (upload.status != UploadStatus::uploading)
+        return;
+
+    const int generation = ++uploadGeneration;
+    run ([this, client = client, file = upload.file, track = upload.trackId, label = upload.label,
+          cancelled = uploadCancelled, generation]
+    {
+        constexpr auto mimeType = "audio/flac";
+        constexpr juce::int64 maxSize = (juce::int64) 500 * 1024 * 1024;
+        const auto size = file.getSize();
+        int versionNumber = 0;
+
+        auto outcome = juce::Result::ok();
+        if (size <= 0)
+            outcome = juce::Result::fail ("Aufnahme nicht gefunden");
+        else if (size > maxSize)
+            outcome = juce::Result::fail (juce::String::fromUTF8 ("Aufnahme ist gr\xC3\xB6\xC3\x9F" "er als 500 MB"));
+
+        HubClient::UploadTarget target;
+        if (outcome.wasOk())
+            outcome = client->requestUploadUrl (track, file.getFileName(), mimeType, size, target);
+
+        if (outcome.wasOk())
+        {
+            int lastPercent = -1;
+            outcome = client->putFile (target.uploadUrl, file, mimeType, [this, generation, &lastPercent] (double progress)
+            {
+                const int percent = (int) (progress * 100.0);
+                if (percent == lastPercent)
+                    return;
+                lastPercent = percent;
+                later ([this, generation, progress]
+                {
+                    if (generation != uploadGeneration)
+                        return;
+                    upload.progress = progress;
+                    sendChangeMessage();
+                });
+            }, *cancelled);
+        }
+
+        if (outcome.wasOk() && cancelled->load())
+            outcome = juce::Result::fail ("Abgebrochen");
+        if (outcome.wasOk())
+            outcome = client->createVersion (track, target.fileKey, label, juce::SHA256 (file).toHexString(),
+                                             file.getFileName(), mimeType, size, versionNumber);
+
+        later ([this, outcome, versionNumber, generation]
+        {
+            if (generation != uploadGeneration)
+                return;
+
+            if (outcome.getErrorMessage() == HubClient::unauthorized)
+            {
+                forgetSession (sessionExpiredMessage);
+                return;
+            }
+
+            if (outcome.failed())
+            {
+                upload.status = UploadStatus::failed;
+                upload.error = outcome.getErrorMessage();
+            }
+            else
+            {
+                upload.status = UploadStatus::done;
+                upload.progress = 1.0;
+                upload.versionNumber = versionNumber;
+                upload.file.deleteFile();
+                if (upload.trackId == trackId && projectId.isNotEmpty())
+                    fetchTracks();   // new version count, then the version list
+            }
+            sendChangeMessage();
+        });
+    });
 }
 
 // State saved with the DAW session

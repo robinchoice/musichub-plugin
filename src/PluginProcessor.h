@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include "Capture.h"
 #include "Engine.h"
 #include "HubSession.h"
 
@@ -19,6 +20,7 @@ public:
     void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    void setNonRealtime (bool isNonRealtime) noexcept override;
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -46,6 +48,10 @@ public:
     juce::AudioProcessorValueTreeState parameters;
     Engine engine;
     HubSession session;
+
+    // Records the next offline bounce for upload, once armed in the editor
+    Capture capture { session.getDataDirectory().getChildFile ("captures") };
+    juce::String captureError;   // message thread
 
     // The slot that is audible right now: the chosen one, or the live mix while
     // the transport stands still or a bounce renders. An empty slot is silent.

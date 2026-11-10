@@ -34,6 +34,7 @@ MusicHubAudioProcessor::MusicHubAudioProcessor()
         engine.setSlotAudio (slot, std::move (audio));
     };
 
+    Capture::cleanUp (capture.getDirectory());
     startTimerHz (4);
 }
 
@@ -107,15 +108,37 @@ void MusicHubAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
         engine.slot (slot).offsetSeconds.store (offsetParameters[(size_t) slot]->load() / 1000.0);
         engine.slot (slot).trimDb.store (trimParameters[(size_t) slot]->load());
     }
+    capture.process (buffer, getTotalNumOutputChannels(), getSampleRate(), isNonRealtime());
+
     engine.setActiveSlot (juce::roundToInt (sourceParameter->load()));
     engine.process (buffer, hostPosition, playing, isNonRealtime());
     audibleSource.store (engine.getPlayingSlot());
 }
 
-// Message thread: level matching against the live mix, and freeing replaced audio
+void MusicHubAudioProcessor::setNonRealtime (bool isNonRealtime) noexcept
+{
+    AudioProcessor::setNonRealtime (isNonRealtime);
+    capture.setNonRealtime (isNonRealtime);
+}
+
+// Message thread: level matching against the live mix, freeing replaced audio,
+// and handing finished bounces to the session
 void MusicHubAudioProcessor::timerCallback()
 {
     engine.clearReleasePool();
+
+    capture.finishIfIdle (juce::Time::getMillisecondCounter());
+    if (const auto recording = capture.takeFinished())
+    {
+        if (recording->error.isNotEmpty())
+            captureError = recording->error;
+        else
+        {
+            captureError.clear();
+            Capture::cleanUp (capture.getDirectory(), recording->file);
+            session.uploadBounce (recording->file, recording->seconds);
+        }
+    }
 
     const bool match = levelMatchParameter->load() > 0.5f;
     const double live = engine.liveMeter().integratedLufs();

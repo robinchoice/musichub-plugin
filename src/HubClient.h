@@ -63,6 +63,19 @@ public:
                                const std::function<void (double)>& onProgress,
                                const std::atomic<bool>& cancelled);
 
+    // Uploading a version: ask for a presigned URL, PUT the file there, then register it
+    struct UploadTarget
+    {
+        juce::String uploadUrl, fileKey;
+    };
+    juce::Result requestUploadUrl (const juce::String& trackId, const juce::String& fileName, const juce::String& mimeType,
+                                   juce::int64 fileSize, UploadTarget& out);
+    juce::Result putFile (const juce::String& url, const juce::File& file, const juce::String& mimeType,
+                          const std::function<void (double)>& onProgress, const std::atomic<bool>& cancelled);
+    juce::Result createVersion (const juce::String& trackId, const juce::String& fileKey, const juce::String& label,
+                                const juce::String& sha256, const juce::String& fileName, const juce::String& mimeType,
+                                juce::int64 fileSize, int& versionNumberOut);
+
     // Any thread: aborts running requests and fails all later ones
     void cancel();
 

@@ -212,6 +212,7 @@ static void testEngine()
     check (engine.getSlotAudio (1)->buffer.getNumSamples() == 100, "new audio is active");
 }
 
+void testCapture();
 void testHubSession();
 
 int main()
@@ -220,6 +221,7 @@ int main()
     testLoudness (44100.0);
     testConcurrentReset();
     testEngine();
+    testCapture();
     testHubSession();
 
     std::printf ("%s\n", failures == 0 ? "All tests passed" : "Tests failed");

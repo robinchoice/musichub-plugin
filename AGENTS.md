@@ -2,7 +2,7 @@
 
 ## Purpose & links
 
-- DAW plugin (JUCE, CMake) for Music Hub: slot A plays the DAW's live mix, slots B to D play versions of a Music Hub track. Talks to the API of `robinchoice/music-hub`, by default https://hub.pleasance.org, overridable with `MUSICHUB_URL`.
+- DAW plugin (JUCE, CMake) for Music Hub: slot A plays the DAW's live mix, slots B to D play versions of a Music Hub track. Armed in the editor, it records the next offline bounce of its input (FLAC, `<data dir>/captures/`) and uploads it as the next version of the chosen track. Talks to the API of `robinchoice/music-hub`, by default https://hub.pleasance.org, overridable with `MUSICHUB_URL`.
 - Distributed as unsigned prereleases on GitHub, no hosting.
 
 ## Checks
@@ -22,6 +22,11 @@ ctest --test-dir build --output-on-failure
 
 ## Pitfalls
 
+- Bounce capture only sees offline renders the host announces through `setNonRealtime` (Logic offline bounce, Ableton export). Realtime bounces are not captured, and Pro Tools is out until the AAX is PACE-signed.
 - Releases are signed annotated tags. The tag message body becomes the release notes, so write them there (German, like v0.1.0).
 - Keep `project(... VERSION ...)` in `CMakeLists.txt` in line with the tag.
 - v0.1.0 talks to https://hub.diespaetzles.lol. That domain stays up until users have a newer version.
+
+## Deviations from the standard
+
+- The UI is German only, without an English switch, until the plugin gets a language toggle. New texts stay German like the existing ones.
